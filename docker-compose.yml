@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  yanb-sync:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: yanb-sync
+    ports:
+      - "8000:8000"
+    environment:
+      - YNAB_ACCESS_TOKEN=${YNAB_ACCESS_TOKEN}
+      - AKAHU_APP_TOKEN=${AKAHU_APP_TOKEN}
+      - AKAHU_USER_TOKEN=${AKAHU_USER_TOKEN}
+      - DATABASE_URL=sqlite+aiosqlite:///./data/yanb_sync.db
+      - SECRET_KEY=${SECRET_KEY:-change-this-in-production}
+    volumes:
+      # Persist SQLite database
+      - yanb-data:/app/data
+      # Mount frontend files
+      - ./frontend:/app/frontend:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  yanb-data:
+    driver: local
