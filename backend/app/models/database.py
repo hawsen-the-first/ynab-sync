@@ -127,6 +127,8 @@ class SyncLog(Base):
     balance_matched = Column(Boolean, nullable=True)
     reconciliation_triggered = Column(Boolean, nullable=True)
     reconciliation_imported = Column(Integer, nullable=True)
+    reconciliation_passes = Column(Integer, nullable=True)
+    reconciliation_window_days = Column(Integer, nullable=True)
 
 
 # Database setup functions

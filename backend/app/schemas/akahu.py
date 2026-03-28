@@ -69,6 +69,8 @@ class SyncLogResponse(BaseModel):
     balance_matched: Optional[bool] = None
     reconciliation_triggered: Optional[bool] = None
     reconciliation_imported: Optional[int] = None
+    reconciliation_passes: Optional[int] = None
+    reconciliation_window_days: Optional[int] = None
 
     class Config:
         from_attributes = True

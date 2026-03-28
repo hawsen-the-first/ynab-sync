@@ -43,6 +43,14 @@ MIGRATIONS = [
             "ALTER TABLE sync_logs ADD COLUMN reconciliation_imported INTEGER",
         ],
     },
+    {
+        "version": 2,
+        "description": "Add progressive reconciliation tracking columns to sync_logs",
+        "sql": [
+            "ALTER TABLE sync_logs ADD COLUMN reconciliation_passes INTEGER",
+            "ALTER TABLE sync_logs ADD COLUMN reconciliation_window_days INTEGER",
+        ],
+    },
 ]
 
 

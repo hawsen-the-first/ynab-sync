@@ -2,9 +2,11 @@
 Balance-check and reconciliation logic.
 
 After a normal sync completes, compare the Akahu account balance against the
-YNAB account balance.  If they differ by more than 1 cent we assume transactions
-are missing and run a 30-day look-back against the live YNAB transaction list to
-find and import the gaps.
+YNAB account balance.  If they differ by more than 1 cent we run a progressive
+reconciliation: each pass widens the look-back window until the balances agree
+or we exhaust the retry schedule.
+
+Retry windows (days): 30 → 60 → 90 → 180 → 365
 """
 
 import logging
@@ -25,108 +27,55 @@ logger = logging.getLogger(__name__)
 # $0.001 of error; we use $0.01 to absorb any FX / rounding edge-cases.
 BALANCE_TOLERANCE = 0.01
 
+# Progressive look-back windows in days.  Each pass widens the window and
+# re-checks the balance before moving to the next.
+RECONCILIATION_WINDOWS = [30, 60, 90, 180, 365]
 
-async def check_and_reconcile(
-    session: AsyncSession,
+
+async def _fetch_balance(akahu: AkahuClient, ynab: YNABClient, link: AkahuAccount):
+    """Return (akahu_balance, ynab_balance) or raise."""
+    akahu_account = await akahu.get_account(link.akahu_account_id)
+    ynab_account = await ynab.get_account(link.ynab_budget_id, link.ynab_account_id)
+
+    if akahu_account is None or akahu_account.balance is None or ynab_account is None:
+        raise ValueError("Could not retrieve one or both account balances")
+
+    return (
+        akahu_account.balance,
+        YNABClient.milliunits_to_dollars(ynab_account.get("balance", 0)),
+    )
+
+
+async def _reconcile_window(
+    akahu: AkahuClient,
+    ynab: YNABClient,
+    dedup: DeduplicationService,
     link: AkahuAccount,
-    sync_log: SyncLog,
-    reconciliation_days: int = 30,
-) -> None:
+    days: int,
+) -> int:
     """
-    Compare Akahu and YNAB balances and reconcile if they don't match.
-
-    Mutates *sync_log* with the balance check results and commits them to the
-    session.  On a mismatch, fetches the last *reconciliation_days* of
-    transactions from YNAB, finds any Akahu transactions absent from YNAB, and
-    imports them.
+    Fetch Akahu and YNAB transactions for the given window, find gaps, import
+    them.  Returns the number of transactions imported into YNAB.
     """
-    akahu = AkahuClient()
-    ynab = YNABClient()
+    start_date = datetime.now() - timedelta(days=days)
 
-    # --- Fetch current balances ---
-    try:
-        akahu_account = await akahu.get_account(link.akahu_account_id)
-        ynab_account = await ynab.get_account(link.ynab_budget_id, link.ynab_account_id)
-    except Exception as exc:
-        logger.warning(f"Balance check skipped for {link.akahu_account_id}: {exc}")
-        sync_log.balance_checked = False
-        await session.commit()
-        return
-
-    if (
-        akahu_account is None
-        or akahu_account.balance is None
-        or ynab_account is None
-    ):
-        logger.warning(
-            f"Balance check skipped for {link.akahu_account_id}: "
-            "could not retrieve one or both balances"
-        )
-        sync_log.balance_checked = False
-        await session.commit()
-        return
-
-    akahu_balance: float = akahu_account.balance
-    ynab_balance: float = YNABClient.milliunits_to_dollars(ynab_account.get("balance", 0))
-
-    sync_log.balance_checked = True
-    sync_log.akahu_balance = akahu_balance
-    sync_log.ynab_balance = ynab_balance
-    sync_log.balance_matched = abs(akahu_balance - ynab_balance) <= BALANCE_TOLERANCE
-    sync_log.reconciliation_triggered = False
-    sync_log.reconciliation_imported = 0
-
-    logger.info(
-        f"Balance check for {link.akahu_account_id}: "
-        f"Akahu={akahu_balance:.2f}  YNAB={ynab_balance:.2f}  "
-        f"matched={sync_log.balance_matched}"
+    ynab_txs = await ynab.get_account_transactions(
+        link.ynab_budget_id,
+        link.ynab_account_id,
+        since_date=start_date.date(),
     )
 
-    if sync_log.balance_matched:
-        await session.commit()
-        return
-
-    # --- Balances differ — reconcile ---
-    logger.info(
-        f"Balance mismatch detected for {link.akahu_account_id} "
-        f"(diff={akahu_balance - ynab_balance:+.2f}). "
-        f"Running {reconciliation_days}-day reconciliation."
-    )
-    sync_log.reconciliation_triggered = True
-
-    start_date = datetime.now() - timedelta(days=reconciliation_days)
-
-    try:
-        ynab_txs = await ynab.get_account_transactions(
-            link.ynab_budget_id,
-            link.ynab_account_id,
-            since_date=start_date.date(),
-        )
-    except Exception as exc:
-        logger.error(f"Failed to fetch YNAB transactions for reconciliation: {exc}")
-        await session.commit()
-        return
-
-    # Build a fingerprint count map: "date:amount_milliunits" -> how many times
-    # that exact fingerprint exists in YNAB already.
+    # Build fingerprint count map: "date:amount_milliunits" -> occurrences in YNAB
     ynab_counts: dict[str, int] = {}
     for tx in ynab_txs:
         key = f"{tx['date']}:{tx['amount']}"
         ynab_counts[key] = ynab_counts.get(key, 0) + 1
 
-    try:
-        akahu_txs = await akahu.get_account_transactions(
-            link.akahu_account_id,
-            start_date=start_date,
-        )
-    except Exception as exc:
-        logger.error(f"Failed to fetch Akahu transactions for reconciliation: {exc}")
-        await session.commit()
-        return
+    akahu_txs = await akahu.get_account_transactions(
+        link.akahu_account_id,
+        start_date=start_date,
+    )
 
-    # Walk Akahu transactions and identify ones not yet covered in YNAB.
-    # We track occurrences so that two identical-amount same-day transactions
-    # are handled correctly.
     seen_counts: dict[str, int] = {}
     missing_ynab: list[dict] = []
     missing_creates: list[TransactionCreate] = []
@@ -161,30 +110,14 @@ async def check_and_reconcile(
             )
 
     if not missing_ynab:
-        logger.info(
-            f"Reconciliation found no missing transactions for {link.akahu_account_id}. "
-            "Balance difference may be due to pending/uncleared transactions."
-        )
-        await session.commit()
-        return
+        return 0
 
-    logger.info(
-        f"Reconciliation importing {len(missing_ynab)} missing transactions "
-        f"for {link.akahu_account_id}."
+    import_result = await ynab.import_transactions(
+        link.ynab_budget_id,
+        link.ynab_account_id,
+        missing_ynab,
     )
 
-    try:
-        import_result = await ynab.import_transactions(
-            link.ynab_budget_id,
-            link.ynab_account_id,
-            missing_ynab,
-        )
-    except Exception as exc:
-        logger.error(f"Failed to import reconciliation transactions to YNAB: {exc}")
-        await session.commit()
-        return
-
-    dedup = DeduplicationService(session)
     await dedup.upsert_imports_batch(
         missing_creates,
         link.ynab_budget_id,
@@ -192,10 +125,120 @@ async def check_and_reconcile(
         import_result.transaction_ids,
     )
 
-    sync_log.reconciliation_imported = len(import_result.transaction_ids)
+    return len(import_result.transaction_ids)
+
+
+async def check_and_reconcile(
+    session: AsyncSession,
+    link: AkahuAccount,
+    sync_log: SyncLog,
+) -> None:
+    """
+    Compare Akahu and YNAB balances and reconcile progressively if they don't match.
+
+    Widens the look-back window across RECONCILIATION_WINDOWS, re-checking the
+    balance after each pass and stopping as soon as they agree.
+
+    Mutates *sync_log* with results and commits after each pass.
+    """
+    akahu = AkahuClient()
+    ynab = YNABClient()
+
+    # --- Fetch current balances ---
+    try:
+        akahu_balance, ynab_balance = await _fetch_balance(akahu, ynab, link)
+    except Exception as exc:
+        logger.warning(f"Balance check skipped for {link.akahu_account_id}: {exc}")
+        sync_log.balance_checked = False
+        await session.commit()
+        return
+
+    sync_log.balance_checked = True
+    sync_log.akahu_balance = akahu_balance
+    sync_log.ynab_balance = ynab_balance
+    sync_log.balance_matched = abs(akahu_balance - ynab_balance) <= BALANCE_TOLERANCE
+    sync_log.reconciliation_triggered = False
+    sync_log.reconciliation_imported = 0
+    sync_log.reconciliation_passes = 0
+    sync_log.reconciliation_window_days = None
+
     logger.info(
-        f"Reconciliation complete for {link.akahu_account_id}: "
-        f"imported {sync_log.reconciliation_imported} transactions."
+        f"Balance check for {link.akahu_account_id}: "
+        f"Akahu={akahu_balance:.2f}  YNAB={ynab_balance:.2f}  "
+        f"matched={sync_log.balance_matched}"
     )
 
+    if sync_log.balance_matched:
+        await session.commit()
+        return
+
+    # --- Progressive reconciliation ---
+    logger.info(
+        f"Balance mismatch for {link.akahu_account_id} "
+        f"(diff={akahu_balance - ynab_balance:+.2f}). "
+        f"Starting progressive reconciliation over windows: {RECONCILIATION_WINDOWS} days."
+    )
+    sync_log.reconciliation_triggered = True
+    dedup = DeduplicationService(session)
+    total_imported = 0
+
+    for days in RECONCILIATION_WINDOWS:
+        sync_log.reconciliation_passes = (sync_log.reconciliation_passes or 0) + 1
+        sync_log.reconciliation_window_days = days
+        logger.info(
+            f"Reconciliation pass {sync_log.reconciliation_passes} "
+            f"({days} days) for {link.akahu_account_id}"
+        )
+
+        try:
+            imported = await _reconcile_window(akahu, ynab, dedup, link, days)
+        except Exception as exc:
+            logger.error(
+                f"Reconciliation pass failed for {link.akahu_account_id} "
+                f"(window={days}d): {exc}"
+            )
+            break
+
+        total_imported += imported
+        sync_log.reconciliation_imported = total_imported
+        await session.commit()
+
+        if imported == 0:
+            logger.info(
+                f"No new transactions found in {days}-day window for "
+                f"{link.akahu_account_id}. Checking balance..."
+            )
+
+        # Re-check balance after this pass
+        try:
+            _, ynab_balance_now = await _fetch_balance(akahu, ynab, link)
+        except Exception as exc:
+            logger.warning(f"Could not re-check balance after reconciliation pass: {exc}")
+            break
+
+        if abs(akahu_balance - ynab_balance_now) <= BALANCE_TOLERANCE:
+            sync_log.balance_matched = True
+            sync_log.ynab_balance = ynab_balance_now
+            await session.commit()
+            logger.info(
+                f"Balance reconciled for {link.akahu_account_id} after "
+                f"{sync_log.reconciliation_passes} pass(es) "
+                f"({days}-day window). "
+                f"Total imported: {total_imported}."
+            )
+            return
+
+        logger.info(
+            f"Balance still differs after {days}-day pass for {link.akahu_account_id} "
+            f"(diff={akahu_balance - ynab_balance_now:+.2f}). "
+            f"{'Widening window.' if days != RECONCILIATION_WINDOWS[-1] else 'All windows exhausted.'}"
+        )
+
+    # Exhausted all windows — record final state
+    sync_log.balance_matched = False
     await session.commit()
+    logger.warning(
+        f"Reconciliation exhausted all windows for {link.akahu_account_id}. "
+        f"Remaining diff may be pending/uncleared transactions or manual adjustments. "
+        f"Total imported across all passes: {total_imported}."
+    )
