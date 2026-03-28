@@ -116,9 +116,17 @@ class SyncLog(Base):
     
     # Error info
     error_message = Column(Text, nullable=True)
-    
+
     # Trigger type
     trigger = Column(String(50), default='manual')  # 'manual', 'scheduled'
+
+    # Balance check results
+    balance_checked = Column(Boolean, nullable=True)
+    akahu_balance = Column(Float, nullable=True)
+    ynab_balance = Column(Float, nullable=True)
+    balance_matched = Column(Boolean, nullable=True)
+    reconciliation_triggered = Column(Boolean, nullable=True)
+    reconciliation_imported = Column(Integer, nullable=True)
 
 
 # Database setup functions

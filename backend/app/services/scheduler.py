@@ -15,6 +15,7 @@ from ..models.database import AkahuAccount, SyncLog
 from .akahu_client import AkahuClient
 from .ynab_client import YNABClient
 from .dedup import DeduplicationService
+from .reconciliation import check_and_reconcile
 from ..schemas.transaction import TransactionCreate
 
 logger = logging.getLogger(__name__)
@@ -183,16 +184,19 @@ async def sync_akahu_account_job(akahu_account_id: str):
         sync_log.completed_at = datetime.utcnow()
         sync_log.transactions_imported = len(import_result.transaction_ids)
         sync_log.ynab_duplicates = len(import_result.duplicate_import_ids)
-        
+
         # Update account
         link.last_sync_status = 'success'
         link.last_sync_message = f'Imported {len(import_result.transaction_ids)} transactions'
         link.last_sync_imported = len(import_result.transaction_ids)
         link.last_synced_at = datetime.utcnow()
         link.next_sync_at = datetime.utcnow() + timedelta(hours=link.schedule_interval_hours)
-        
+
         await session.commit()
         logger.info(f"Scheduled sync complete for {akahu_account_id}: imported {len(import_result.transaction_ids)}")
+
+        # Balance check — reconcile if Akahu and YNAB totals diverge
+        await check_and_reconcile(session, link, sync_log)
         
     except Exception as e:
         logger.exception(f"Error in scheduled sync for {akahu_account_id}: {e}")

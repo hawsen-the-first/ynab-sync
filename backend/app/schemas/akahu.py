@@ -62,6 +62,13 @@ class SyncLogResponse(BaseModel):
     ynab_duplicates: int = 0
     error_message: Optional[str] = None
     trigger: str = 'manual'
+    # Balance check / reconciliation results
+    balance_checked: Optional[bool] = None
+    akahu_balance: Optional[float] = None
+    ynab_balance: Optional[float] = None
+    balance_matched: Optional[bool] = None
+    reconciliation_triggered: Optional[bool] = None
+    reconciliation_imported: Optional[int] = None
 
     class Config:
         from_attributes = True

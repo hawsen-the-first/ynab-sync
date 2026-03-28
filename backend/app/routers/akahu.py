@@ -9,6 +9,7 @@ from ..services.akahu_client import AkahuClient
 from ..services.ynab_client import YNABClient
 from ..services.dedup import DeduplicationService
 from ..services.scheduler import schedule_account_sync, remove_account_schedule, get_scheduled_jobs
+from ..services.reconciliation import check_and_reconcile
 from ..models.database import AkahuAccount, SyncLog
 from ..schemas.akahu import (
     AkahuAccountResponse,
@@ -281,7 +282,7 @@ async def sync_akahu_account(
             status_code=500,
             detail=f"Failed to import to YNAB: {str(e)}"
         )
-    
+
     # Record successful imports
     await dedup.record_imports_batch(
         tx_creates,
@@ -289,16 +290,39 @@ async def sync_akahu_account(
         link.ynab_account_id,
         import_result.transaction_ids
     )
-    
+
     # Update last synced timestamp
     link.last_synced_at = datetime.utcnow()
+
+    # Create a sync log entry so balance results are recorded
+    sync_log = SyncLog(
+        akahu_account_id=akahu_account_id,
+        status='success',
+        trigger='manual',
+        transactions_found=len(transactions),
+        transactions_imported=len(import_result.transaction_ids),
+        transactions_skipped=skipped,
+        ynab_duplicates=len(import_result.duplicate_import_ids),
+        completed_at=datetime.utcnow(),
+    )
+    db.add(sync_log)
     await db.commit()
-    
+    await db.refresh(sync_log)
+
+    # Balance check — reconcile if Akahu and YNAB totals diverge
+    await check_and_reconcile(db, link, sync_log)
+
     return {
         "imported": len(import_result.transaction_ids),
         "ynab_duplicates": len(import_result.duplicate_import_ids),
         "skipped_duplicates": skipped,
-        "transaction_ids": import_result.transaction_ids
+        "transaction_ids": import_result.transaction_ids,
+        "balance_checked": sync_log.balance_checked,
+        "akahu_balance": sync_log.akahu_balance,
+        "ynab_balance": sync_log.ynab_balance,
+        "balance_matched": sync_log.balance_matched,
+        "reconciliation_triggered": sync_log.reconciliation_triggered,
+        "reconciliation_imported": sync_log.reconciliation_imported,
     }
 
 

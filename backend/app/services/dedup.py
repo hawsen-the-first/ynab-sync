@@ -126,6 +126,57 @@ class DeduplicationService:
         await self.session.commit()
         return len(transactions)
     
+    async def upsert_imports_batch(
+        self,
+        transactions: List[TransactionCreate],
+        ynab_budget_id: str,
+        ynab_account_id: str,
+        ynab_transaction_ids: Optional[List[str]] = None
+    ) -> int:
+        """
+        Insert or update imported transaction records.
+
+        Used by reconciliation so that transactions already in the local DB
+        (but missing from YNAB) get their YNAB ID updated rather than causing
+        a unique-constraint error.
+
+        Returns the number of records upserted.
+        """
+        if not transactions:
+            return 0
+
+        ynab_ids = ynab_transaction_ids or [None] * len(transactions)
+
+        for tx, ynab_id in zip(transactions, ynab_ids):
+            tx_hash = self.generate_hash(tx.date, tx.amount, tx.payee, tx.memo)
+
+            result = await self.session.execute(
+                select(ImportedTransaction).where(ImportedTransaction.transaction_hash == tx_hash)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                if ynab_id:
+                    existing.ynab_transaction_id = ynab_id
+            else:
+                self.session.add(ImportedTransaction(
+                    transaction_hash=tx_hash,
+                    date=tx.date,
+                    amount=tx.amount,
+                    payee=tx.payee,
+                    memo=tx.memo,
+                    source=tx.source,
+                    source_account=tx.source_account,
+                    source_transaction_id=tx.source_transaction_id,
+                    ynab_budget_id=ynab_budget_id,
+                    ynab_account_id=ynab_account_id,
+                    ynab_transaction_id=ynab_id,
+                    imported_at=datetime.utcnow(),
+                ))
+
+        await self.session.commit()
+        return len(transactions)
+
     async def get_import_history(
         self,
         limit: int = 100,

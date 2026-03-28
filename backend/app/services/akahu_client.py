@@ -144,6 +144,23 @@ class AkahuClient:
             for tx in transactions
         ]
     
+    async def get_account(self, account_id: str) -> Optional[AkahuAccountResponse]:
+        """Get a single Akahu account by ID (includes current balance)."""
+        try:
+            data = await self._request("GET", f"/accounts/{account_id}")
+            acc = data.get("item", {})
+            if not acc:
+                return None
+            return AkahuAccountResponse(
+                id=acc["_id"],
+                name=acc.get("name", "Unknown Account"),
+                type=acc.get("type", "unknown"),
+                institution=acc.get("connection", {}).get("name", "Unknown"),
+                balance=acc.get("balance", {}).get("current"),
+            )
+        except Exception:
+            return None
+
     async def test_connection(self) -> bool:
         """Test if the Akahu connection is working."""
         try:

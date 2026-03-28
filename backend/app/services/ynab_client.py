@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from ..config import get_settings
@@ -18,7 +18,7 @@ class YNABClient:
             "Content-Type": "application/json"
         }
     
-    async def _request(self, method: str, endpoint: str, json_data: dict = None) -> dict:
+    async def _request(self, method: str, endpoint: str, json_data: dict = None, params: dict = None) -> dict:
         """Make an authenticated request to YNAB API."""
         async with httpx.AsyncClient() as client:
             response = await client.request(
@@ -26,6 +26,7 @@ class YNABClient:
                 f"{self.BASE_URL}{endpoint}",
                 headers=self.headers,
                 json=json_data,
+                params=params,
                 timeout=30.0
             )
             response.raise_for_status()
@@ -169,6 +170,37 @@ class YNABClient:
             duplicate_import_ids=duplicate_ids
         )
     
+    async def get_account(self, budget_id: str, account_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single YNAB account including its current balance (milliunits)."""
+        data = await self._request("GET", f"/budgets/{budget_id}/accounts/{account_id}")
+        return data.get("data", {}).get("account")
+
+    async def get_account_transactions(
+        self,
+        budget_id: str,
+        account_id: str,
+        since_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get transactions for an account from YNAB.
+
+        Returns raw transaction dicts with at minimum: id, date, amount (milliunits),
+        payee_name, memo, cleared, deleted, import_id.
+        """
+        params = {}
+        if since_date:
+            params["since_date"] = since_date.isoformat() if hasattr(since_date, "isoformat") else since_date
+
+        data = await self._request(
+            "GET",
+            f"/budgets/{budget_id}/accounts/{account_id}/transactions",
+            params=params or None,
+        )
+        return [
+            tx for tx in data.get("data", {}).get("transactions", [])
+            if not tx.get("deleted", False)
+        ]
+
     async def test_connection(self) -> bool:
         """Test if the YNAB connection is working."""
         try:
