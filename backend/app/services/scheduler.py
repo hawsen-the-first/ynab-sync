@@ -115,24 +115,26 @@ async def sync_akahu_account_job(akahu_account_id: str):
         skipped = 0
         
         for tx in transactions:
-            tx_hash = dedup.generate_hash(tx.date, tx.amount, tx.merchant or tx.description)
-            
+            payee = tx.merchant or (tx.description[:50] if tx.description else None)
+            memo = tx.description
+            tx_hash = dedup.generate_hash(tx.date, tx.amount, payee, memo)
+
             if tx_hash in existing_hashes:
                 skipped += 1
                 continue
-            
+
             ynab_transactions.append({
                 "date": tx.date,
                 "amount": tx.amount,
-                "payee": tx.merchant or tx.description[:50] if tx.description else None,
-                "memo": tx.description
+                "payee": payee,
+                "memo": memo
             })
-            
+
             tx_creates.append(TransactionCreate(
                 date=tx.date,
                 amount=tx.amount,
-                payee=tx.merchant or tx.description[:50] if tx.description else None,
-                memo=tx.description,
+                payee=payee,
+                memo=memo,
                 source="akahu",
                 source_account=akahu_account_id,
                 source_transaction_id=tx.id
