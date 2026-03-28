@@ -142,10 +142,9 @@ def main() -> None:
     db_path = resolve_db_path()
 
     if not db_path.exists():
-        print(f"ERROR: database not found at {db_path.resolve()}")
-        print("Make sure the app has been started at least once to initialise the schema,")
-        print("or set DATABASE_URL in your environment / .env file.")
-        sys.exit(1)
+        print(f"No database found at {db_path.resolve()} — skipping migrations.")
+        print("The app will create and initialise the database on first start.")
+        return
 
     print(f"Database: {db_path.resolve()}")
 
