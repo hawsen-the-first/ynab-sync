@@ -55,6 +55,7 @@ function app() {
         
         // Sync Logs
         syncLogs: [],
+        syncLogErrorCount: 0,
         
         // History
         history: [],
@@ -80,6 +81,7 @@ function app() {
             
             await this.loadHistory();
             await this.loadStats();
+            await this.loadSyncLogs();
         },
         
         // Test API connections
@@ -387,10 +389,18 @@ function app() {
                 
                 if (res.ok) {
                     const result = await res.json();
-                    this.showToast(`Synced ${result.imported} transactions`, 'success');
+                    let msg = `Synced ${result.imported} transactions`;
+                    if (result.reconciliation_triggered) {
+                        msg += ` (+${result.reconciliation_imported ?? 0} reconciled)`;
+                    }
+                    if (result.balance_matched === false && !result.reconciliation_triggered) {
+                        msg += ' — balance mismatch, check Sync Logs';
+                    }
+                    this.showToast(msg, result.balance_matched === false ? 'error' : 'success');
                     await this.loadAkahuAccounts();
                     await this.loadHistory();
                     await this.loadStats();
+                    await this.loadSyncLogs();
                 } else {
                     const error = await res.json();
                     this.showToast(error.detail || 'Failed to sync', 'error');
@@ -468,12 +478,16 @@ function app() {
         
         async loadSyncLogs(accountId = null) {
             try {
-                const url = accountId 
+                const url = accountId
                     ? `/api/akahu/sync-logs?akahu_account_id=${accountId}&limit=20`
                     : '/api/akahu/sync-logs?limit=50';
                 const res = await fetch(url);
                 if (res.ok) {
-                    this.syncLogs = await res.json();
+                    const logs = await res.json();
+                    // Preserve open/closed state for already-expanded rows
+                    const openIds = new Set(this.syncLogs.filter(l => l._open).map(l => l.id));
+                    this.syncLogs = logs.map(l => ({ ...l, _open: openIds.has(l.id) }));
+                    this.syncLogErrorCount = this.syncLogs.filter(l => l.status === 'failed').length;
                 }
             } catch (e) {
                 console.error('Failed to load sync logs:', e);
