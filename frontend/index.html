@@ -295,19 +295,24 @@
                                                 <div class="flex items-center gap-2">
                                                     <template x-if="account.ynab_account_id">
                                                         <div class="flex gap-2">
-                                                            <button @click="syncAkahuAccount(account.id)" 
+                                                            <button @click="syncAkahuAccount(account.id)"
                                                                     class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
                                                                     :disabled="loading">
                                                                 Sync Now
                                                             </button>
-                                                            <button @click="openScheduleModal(account)" 
+                                                            <button @click="openScheduleModal(account)"
                                                                     class="bg-purple-500 text-white px-3 py-1 rounded text-sm hover:bg-purple-600">
                                                                 Schedule
+                                                            </button>
+                                                            <button @click="openLinkModal(account)"
+                                                                    class="bg-gray-200 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-300"
+                                                                    title="Change the linked YNAB budget or account">
+                                                                Update Link
                                                             </button>
                                                         </div>
                                                     </template>
                                                     <template x-if="!account.ynab_account_id">
-                                                        <button @click="openLinkModal(account)" 
+                                                        <button @click="openLinkModal(account)"
                                                                 class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
                                                             Link to YNAB
                                                         </button>
@@ -647,9 +652,11 @@
         <!-- Link Modal -->
         <div x-show="showLinkModal" x-cloak class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg p-6 w-full max-w-md" @click.away="showLinkModal = false">
-                <h3 class="text-lg font-semibold mb-4">Link to YNAB Account</h3>
+                <h3 class="text-lg font-semibold mb-4" x-text="linkingAccount?.ynab_account_id ? 'Update YNAB Link' : 'Link to YNAB Account'"></h3>
                 <p class="text-sm text-gray-600 mb-4">
-                    Link <strong x-text="linkingAccount?.name"></strong> to a YNAB account
+                    <span x-text="linkingAccount?.ynab_account_id ? 'Change the YNAB destination for' : 'Link'"></span>
+                    <strong x-text="linkingAccount?.name"></strong>
+                    <span x-show="!linkingAccount?.ynab_account_id"> to a YNAB account</span>
                 </p>
                 
                 <div class="space-y-4">
@@ -677,10 +684,10 @@
                     <button @click="showLinkModal = false" class="px-4 py-2 border rounded hover:bg-gray-50">
                         Cancel
                     </button>
-                    <button @click="linkAkahuAccount()" 
+                    <button @click="linkAkahuAccount()"
                             class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                            :disabled="!linkBudget || !linkAccount">
-                        Link Account
+                            :disabled="!linkBudget || !linkAccount"
+                            x-text="linkingAccount?.ynab_account_id ? 'Update Link' : 'Link Account'">
                     </button>
                 </div>
             </div>

@@ -328,12 +328,15 @@ function app() {
             }
         },
         
-        openLinkModal(account) {
+        async openLinkModal(account) {
             this.linkingAccount = account;
-            this.linkBudget = '';
-            this.linkAccount = '';
+            this.linkBudget = account.ynab_budget_id || '';
+            this.linkAccount = account.ynab_account_id || '';
             this.linkAccounts = [];
             this.showLinkModal = true;
+            if (this.linkBudget) {
+                await this.loadLinkAccounts();
+            }
         },
         
         async loadLinkAccounts() {
