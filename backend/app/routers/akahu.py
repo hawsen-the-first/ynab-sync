@@ -8,7 +8,7 @@ from ..dependencies import get_db
 from ..services.akahu_client import AkahuClient
 from ..services.ynab_client import YNABClient
 from ..services.dedup import DeduplicationService
-from ..services.scheduler import schedule_account_sync, remove_account_schedule, get_scheduled_jobs
+from ..services.scheduler import schedule_account_sync, remove_account_schedule, get_scheduled_jobs, cleanup_stale_syncs
 from ..services.reconciliation import check_and_reconcile
 from ..models.database import AkahuAccount, SyncLog
 from ..schemas.akahu import (
@@ -436,6 +436,13 @@ async def list_scheduled_jobs():
     """List all currently scheduled sync jobs."""
     jobs = get_scheduled_jobs()
     return [ScheduledJobInfo(**job) for job in jobs]
+
+
+@router.post("/sync-logs/cleanup")
+async def cleanup_stale_sync_logs(db: AsyncSession = Depends(get_db)):
+    """Mark any sync logs stuck in 'running' state as failed."""
+    count = await cleanup_stale_syncs(session=db)
+    return {"cleaned": count, "message": f"Marked {count} stale sync(s) as failed"}
 
 
 @router.get("/sync-logs", response_model=List[SyncLogResponse])

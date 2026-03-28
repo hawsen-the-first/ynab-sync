@@ -267,6 +267,50 @@ async def remove_account_schedule(akahu_account_id: str):
         pass
 
 
+async def cleanup_stale_syncs(session: AsyncSession = None) -> int:
+    """
+    Mark any sync_logs and akahu_accounts stuck in 'running' state as failed.
+
+    This happens when the server crashes or restarts mid-sync.
+    Returns the number of records cleaned up.
+    """
+    own_session = session is None
+    if own_session:
+        session = await get_scheduler_session()
+
+    try:
+        # Find all stale sync logs
+        result = await session.execute(
+            select(SyncLog).where(SyncLog.status == 'running')
+        )
+        stale_logs = result.scalars().all()
+
+        for log in stale_logs:
+            log.status = 'failed'
+            log.error_message = 'Interrupted — server restarted while sync was running'
+            log.completed_at = datetime.utcnow()
+
+        # Also reset any account status stuck on 'running'
+        acct_result = await session.execute(
+            select(AkahuAccount).where(AkahuAccount.last_sync_status == 'running')
+        )
+        stale_accounts = acct_result.scalars().all()
+
+        for account in stale_accounts:
+            account.last_sync_status = 'failed'
+            account.last_sync_message = 'Interrupted — server restarted while sync was running'
+
+        count = len(stale_logs)
+        if count:
+            logger.warning(f"Cleaned up {count} stale sync(s) left in 'running' state")
+
+        await session.commit()
+        return count
+    finally:
+        if own_session:
+            await session.close()
+
+
 async def initialize_scheduler():
     """
     Initialize the scheduler and load existing schedules from the database.

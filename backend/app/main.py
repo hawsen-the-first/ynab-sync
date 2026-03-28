@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from .config import get_settings
 from .models.database import init_db
 from .routers import csv_router, ynab_router, akahu_router, mappings_router
-from .services.scheduler import initialize_scheduler, shutdown_scheduler
+from .services.scheduler import initialize_scheduler, shutdown_scheduler, cleanup_stale_syncs
 
 # Configure logging
 logging.basicConfig(
@@ -34,7 +34,12 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db(settings.database_url)
     logger.info("Database initialized")
-    
+
+    # Clean up any syncs left in 'running' state from a previous crash/restart
+    cleaned = await cleanup_stale_syncs()
+    if cleaned:
+        logger.info(f"Cleaned up {cleaned} stale sync(s)")
+
     # Initialize scheduler for Akahu sync
     await initialize_scheduler()
     logger.info("Scheduler initialized")

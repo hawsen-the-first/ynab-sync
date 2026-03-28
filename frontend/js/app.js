@@ -476,6 +476,25 @@ function app() {
             }
         },
         
+        async cleanupStaleSyncs() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/akahu/sync-logs/cleanup', { method: 'POST' });
+                if (res.ok) {
+                    const result = await res.json();
+                    this.showToast(result.cleaned > 0 ? result.message : 'No stale syncs found', 'success');
+                    await this.loadSyncLogs();
+                    await this.loadAkahuAccounts();
+                } else {
+                    this.showToast('Failed to clean up stale syncs', 'error');
+                }
+            } catch (e) {
+                this.showToast('Failed to clean up stale syncs', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
         async loadSyncLogs(accountId = null) {
             try {
                 const url = accountId
