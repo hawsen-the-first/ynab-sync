@@ -1,4 +1,4 @@
-# YANB Sync - YNAB Transaction Importer
+# YNAB Sync - YNAB Transaction Importer
 
 A self-hosted application for importing bank transactions into [YNAB](https://www.ynab.com/) (You Need A Budget). Supports CSV file uploads and direct bank sync via [Akahu](https://www.akahu.nz/) for New Zealand banks.
 
