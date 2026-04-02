@@ -422,7 +422,7 @@
 
                                         <div class="min-w-0">
                                             <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="font-medium text-sm" x-text="log.akahu_account_id"></span>
+                                                <span class="font-medium text-sm" x-text="log.account_name || log.akahu_account_id"></span>
                                                 <span class="text-xs px-2 py-0.5 rounded font-medium"
                                                       :class="getStatusBg(log.status) + ' ' + getStatusColor(log.status)"
                                                       x-text="log.status"></span>

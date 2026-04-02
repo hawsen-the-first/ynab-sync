@@ -51,6 +51,13 @@ MIGRATIONS = [
             "ALTER TABLE sync_logs ADD COLUMN reconciliation_window_days INTEGER",
         ],
     },
+    {
+        "version": 3,
+        "description": "Add account_name to sync_logs for friendly display",
+        "sql": [
+            "ALTER TABLE sync_logs ADD COLUMN account_name VARCHAR(255)",
+        ],
+    },
 ]
 
 

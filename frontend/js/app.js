@@ -653,14 +653,15 @@ function app() {
         // Utilities
         formatDate(dateStr) {
             if (!dateStr) return '-';
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('en-NZ');
+            // Stored as naive UTC — append Z so the browser parses it correctly
+            const s = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
+            return new Date(s).toLocaleDateString('en-NZ', { timeZone: 'Pacific/Auckland' });
         },
-        
+
         formatDateTime(dateStr) {
             if (!dateStr) return '-';
-            const date = new Date(dateStr);
-            return date.toLocaleString('en-NZ');
+            const s = dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
+            return new Date(s).toLocaleString('en-NZ', { timeZone: 'Pacific/Auckland' });
         },
         
         formatAmount(amount) {

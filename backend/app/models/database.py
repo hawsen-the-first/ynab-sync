@@ -102,7 +102,8 @@ class SyncLog(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     akahu_account_id = Column(String(255), nullable=False, index=True)
-    
+    account_name = Column(String(255), nullable=True)
+
     # Sync details
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

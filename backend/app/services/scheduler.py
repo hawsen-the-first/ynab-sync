@@ -61,6 +61,7 @@ async def sync_akahu_account_job(akahu_account_id: str):
         # Create sync log entry
         sync_log = SyncLog(
             akahu_account_id=akahu_account_id,
+            account_name=link.account_name,
             status='running',
             trigger='scheduled'
         )

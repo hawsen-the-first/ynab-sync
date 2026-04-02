@@ -53,6 +53,7 @@ class SyncLogResponse(BaseModel):
     """Response for sync log entry."""
     id: int
     akahu_account_id: str
+    account_name: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
     status: str

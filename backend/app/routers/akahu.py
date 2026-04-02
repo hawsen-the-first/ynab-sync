@@ -207,37 +207,53 @@ async def sync_akahu_account(
             detail="Akahu account is not linked to a YNAB account"
         )
     
+    # Create sync log up front so every exit path is recorded
+    sync_log = SyncLog(
+        akahu_account_id=akahu_account_id,
+        account_name=link.account_name,
+        status='running',
+        trigger='manual',
+    )
+    db.add(sync_log)
+    await db.commit()
+    await db.refresh(sync_log)
+
+    async def _finish(status, message=None, **kwargs):
+        sync_log.status = status
+        sync_log.completed_at = datetime.utcnow()
+        if message:
+            sync_log.error_message = message
+        for k, v in kwargs.items():
+            setattr(sync_log, k, v)
+        await db.commit()
+
     # Fetch transactions from Akahu
     akahu = AkahuClient()
     start_date = datetime.now() - timedelta(days=days)
-    
+
     try:
         transactions = await akahu.get_account_transactions(
             akahu_account_id,
             start_date=start_date
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch Akahu transactions: {str(e)}"
-        )
-    
+        await _finish('failed', message=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Akahu transactions: {str(e)}")
+
+    sync_log.transactions_found = len(transactions)
+
     if not transactions:
-        return {
-            "imported": 0,
-            "skipped_duplicates": 0,
-            "message": "No transactions found"
-        }
-    
+        await _finish('success', transactions_imported=0, transactions_skipped=0)
+        return {"imported": 0, "skipped_duplicates": 0, "message": "No transactions found"}
+
     # Check for duplicates
     dedup = DeduplicationService(db)
     existing_hashes = await dedup.get_existing_hashes()
-    
-    # Convert to YNAB format and filter duplicates
+
     ynab_transactions = []
     tx_creates = []
     skipped = 0
-    
+
     for tx in transactions:
         payee = tx.merchant or (tx.description[:50] if tx.description else None)
         memo = tx.description
@@ -263,14 +279,11 @@ async def sync_akahu_account(
             source_account=akahu_account_id,
             source_transaction_id=tx.id
         ))
-    
+
     if not ynab_transactions:
-        return {
-            "imported": 0,
-            "skipped_duplicates": skipped,
-            "message": "All transactions were duplicates"
-        }
-    
+        await _finish('success', transactions_imported=0, transactions_skipped=skipped)
+        return {"imported": 0, "skipped_duplicates": skipped, "message": "All transactions were duplicates"}
+
     # Import to YNAB
     ynab = YNABClient()
     try:
@@ -280,10 +293,8 @@ async def sync_akahu_account(
             ynab_transactions
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to import to YNAB: {str(e)}"
-        )
+        await _finish('failed', message=str(e), transactions_skipped=skipped)
+        raise HTTPException(status_code=500, detail=f"Failed to import to YNAB: {str(e)}")
 
     # Record successful imports
     await dedup.record_imports_batch(
@@ -293,22 +304,13 @@ async def sync_akahu_account(
         import_result.transaction_ids
     )
 
-    # Update last synced timestamp
     link.last_synced_at = datetime.utcnow()
-
-    # Create a sync log entry so balance results are recorded
-    sync_log = SyncLog(
-        akahu_account_id=akahu_account_id,
-        status='success',
-        trigger='manual',
-        transactions_found=len(transactions),
+    await _finish(
+        'success',
         transactions_imported=len(import_result.transaction_ids),
         transactions_skipped=skipped,
         ynab_duplicates=len(import_result.duplicate_import_ids),
-        completed_at=datetime.utcnow(),
     )
-    db.add(sync_log)
-    await db.commit()
     await db.refresh(sync_log)
 
     # Balance check — reconcile if Akahu and YNAB totals diverge
