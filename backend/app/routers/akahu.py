@@ -285,25 +285,36 @@ async def sync_akahu_account(
         await _finish('success', transactions_imported=0, transactions_skipped=skipped)
         return {"imported": 0, "skipped_duplicates": skipped, "message": "All transactions were duplicates"}
 
-    # Import to YNAB
+    # Import to YNAB — omit import_id on force so YNAB doesn't reject
+    # previously-deleted transactions via its own import_id memory
     ynab = YNABClient()
     try:
         import_result = await ynab.import_transactions(
             link.ynab_budget_id,
             link.ynab_account_id,
-            ynab_transactions
+            ynab_transactions,
+            use_import_id=not force,
         )
     except Exception as e:
         await _finish('failed', message=str(e), transactions_skipped=skipped)
         raise HTTPException(status_code=500, detail=f"Failed to import to YNAB: {str(e)}")
 
-    # Record successful imports
-    await dedup.record_imports_batch(
-        tx_creates,
-        link.ynab_budget_id,
-        link.ynab_account_id,
-        import_result.transaction_ids
-    )
+    # Record successful imports — upsert when force=True so existing hashes
+    # get their YNAB ID updated rather than causing a unique constraint error
+    if force:
+        await dedup.upsert_imports_batch(
+            tx_creates,
+            link.ynab_budget_id,
+            link.ynab_account_id,
+            import_result.transaction_ids
+        )
+    else:
+        await dedup.record_imports_batch(
+            tx_creates,
+            link.ynab_budget_id,
+            link.ynab_account_id,
+            import_result.transaction_ids
+        )
 
     link.last_synced_at = datetime.utcnow()
     await _finish(

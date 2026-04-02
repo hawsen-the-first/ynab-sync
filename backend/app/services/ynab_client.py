@@ -80,7 +80,8 @@ class YNABClient:
         self,
         budget_id: str,
         account_id: str,
-        transactions: List[dict]
+        transactions: List[dict],
+        use_import_id: bool = True,
     ) -> Tuple[List[str], List[str]]:
         """
         Create transactions in YNAB.
@@ -113,8 +114,8 @@ class YNABClient:
             occurrence = import_id_counts.get(base_key, 0) + 1
             import_id_counts[base_key] = occurrence
             
-            import_id = self.generate_import_id(tx_date, amount_milliunits, occurrence)
-            
+            import_id = self.generate_import_id(tx_date, amount_milliunits, occurrence) if use_import_id else None
+
             ynab_tx = {
                 "account_id": account_id,
                 "date": tx_date.isoformat(),
@@ -145,24 +146,27 @@ class YNABClient:
         self,
         budget_id: str,
         account_id: str,
-        transactions: List[dict]
+        transactions: List[dict],
+        use_import_id: bool = True,
     ) -> YNABImportResult:
         """
         Import transactions to YNAB with proper handling.
-        
+
         Args:
             budget_id: YNAB budget ID
-            account_id: YNAB account ID  
+            account_id: YNAB account ID
             transactions: List of transaction dicts
-        
+            use_import_id: When False, omits import_id so YNAB skips its own
+                           dedup — use for force re-imports of deleted transactions
+
         Returns:
             YNABImportResult with created and duplicate counts
         """
         if not transactions:
             return YNABImportResult(transaction_ids=[], duplicate_import_ids=[])
-        
+
         created_ids, duplicate_ids = await self.create_transactions(
-            budget_id, account_id, transactions
+            budget_id, account_id, transactions, use_import_id=use_import_id
         )
         
         return YNABImportResult(
