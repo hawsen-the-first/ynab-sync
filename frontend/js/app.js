@@ -52,6 +52,11 @@ function app() {
             interval_hours: 6,
             days_to_sync: 7
         },
+
+        // Bulk Import Modal
+        showBulkImportModal: false,
+        bulkImportAccount: null,
+        bulkImportDays: 180,
         
         // Sync Logs
         syncLogs: [],
@@ -415,6 +420,44 @@ function app() {
             }
         },
         
+        // Bulk Import methods
+        openBulkImportModal(account) {
+            this.bulkImportAccount = account;
+            this.bulkImportDays = 180;
+            this.showBulkImportModal = true;
+        },
+
+        async runBulkImport() {
+            if (!this.bulkImportAccount) return;
+            this.loading = true;
+            try {
+                const res = await fetch(
+                    `/api/akahu/sync/${this.bulkImportAccount.id}?days=${this.bulkImportDays}`,
+                    { method: 'POST' }
+                );
+                if (res.ok) {
+                    const result = await res.json();
+                    let msg = `Imported ${result.imported} transactions (${this.bulkImportDays} days)`;
+                    if (result.reconciliation_triggered) {
+                        msg += ` — reconciled ${result.reconciliation_imported ?? 0} more`;
+                    }
+                    this.showToast(msg, result.balance_matched === false ? 'error' : 'success');
+                    this.showBulkImportModal = false;
+                    await this.loadAkahuAccounts();
+                    await this.loadHistory();
+                    await this.loadStats();
+                    await this.loadSyncLogs();
+                } else {
+                    const error = await res.json();
+                    this.showToast(error.detail || 'Bulk import failed', 'error');
+                }
+            } catch (e) {
+                this.showToast('Bulk import failed', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
         // Schedule methods
         openScheduleModal(account) {
             this.schedulingAccount = account;
