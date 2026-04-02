@@ -57,6 +57,7 @@ function app() {
         showBulkImportModal: false,
         bulkImportAccount: null,
         bulkImportDays: 180,
+        bulkImportForce: false,
         
         // Sync Logs
         syncLogs: [],
@@ -424,6 +425,7 @@ function app() {
         openBulkImportModal(account) {
             this.bulkImportAccount = account;
             this.bulkImportDays = 180;
+            this.bulkImportForce = false;
             this.showBulkImportModal = true;
         },
 
@@ -431,8 +433,10 @@ function app() {
             if (!this.bulkImportAccount) return;
             this.loading = true;
             try {
+                const params = new URLSearchParams({ days: this.bulkImportDays });
+                if (this.bulkImportForce) params.set('force', 'true');
                 const res = await fetch(
-                    `/api/akahu/sync/${this.bulkImportAccount.id}?days=${this.bulkImportDays}`,
+                    `/api/akahu/sync/${this.bulkImportAccount.id}?${params}`,
                     { method: 'POST' }
                 );
                 if (res.ok) {

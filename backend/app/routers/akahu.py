@@ -190,6 +190,7 @@ async def sync_akahu_account(
     akahu_account_id: str,
     days: int = Query(default=30, ge=1, le=365),
     skip_duplicates: bool = True,
+    force: bool = Query(default=False, description="Bypass local dedup cache — YNAB's own import_id check still prevents true duplicates"),
     db: AsyncSession = Depends(get_db)
 ):
     """Sync transactions from an Akahu account to its linked YNAB account."""
@@ -259,7 +260,7 @@ async def sync_akahu_account(
         memo = tx.description
         tx_hash = dedup.generate_hash(tx.date, tx.amount, payee, memo)
 
-        if skip_duplicates and tx_hash in existing_hashes:
+        if skip_duplicates and not force and tx_hash in existing_hashes:
             skipped += 1
             continue
 

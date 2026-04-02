@@ -794,8 +794,16 @@
                         </select>
                     </div>
 
+                    <label class="flex items-start gap-3 cursor-pointer select-none">
+                        <input type="checkbox" x-model="bulkImportForce" class="mt-0.5 rounded">
+                        <div>
+                            <p class="text-sm font-medium">Force re-import (ignore local cache)</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Use this if transactions were previously deleted from YNAB. Bypasses the local duplicate cache — YNAB's own checks still prevent true duplicates from being created.</p>
+                        </div>
+                    </label>
+
                     <div class="bg-blue-50 border border-blue-200 rounded px-3 py-2 text-sm text-blue-800">
-                        This imports transactions directly into YNAB. After it completes a balance check will run automatically — if the balances still don't match, the reconciliation process will kick in.
+                        After import, a balance check runs automatically — if the balances still don't match, the reconciliation process will kick in.
                     </div>
                 </div>
 
